@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/gillespied
+gillespied.so
+gillespied.dylib
+gillespied.dll
+gillespied.a
+gillespied.lib
+gillespied-test-*
+*.exe
+*.o
+*.obj
+*.lst
