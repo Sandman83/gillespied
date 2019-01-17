@@ -8,7 +8,7 @@ import std.traits : EnumMembers, isFloatingPoint;
 
 debug import std.stdio; 
 
-//debug = bug; 
+debug = bug; 
 
 debug(bug)
 {
