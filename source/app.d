@@ -8,7 +8,7 @@ import std.traits : EnumMembers, isFloatingPoint;
 
 debug import std.stdio; 
 
-debug = bug; 
+//debug = bug; 
 
 debug(bug)
 {
@@ -278,59 +278,24 @@ static foreach(e1; EnumMembers!Sandmann)
                         res = 0.0; 
 
                         enum runs = 1_000_000; 
-                        //enum runs = 100; 
 
                         foreach(i; 0 .. runs)
                         {
                             inputProps.fill; 
                             assert(inputProps.sum > 0, ElementType!(typeof(inputProps)).stringof); 
                             put(s, inputProps); 
+                            auto tau = s.tau; 
+                            
                             static if(e1 == Sandmann.yes)
                             {
-                                //static if(isFloatingPoint!(ElementType!(typeof(inputProps))))
-                                //{
-                                    
-                                    /*
-                                    auto tau = s.tau; 
-                                    "conditions: ".writeln("l: ", l, " T.stringof: ", T.stringof, " LDM: ", e2, " Sandmann: ", e1); 
-                                    "tau: ".writeln(tau); 
-                                    "1.0/inputProps.sum: ".writeln(1.0/inputProps.sum); 
-                                    "abs(tau - 1.0/inputProps.sum): ".writeln(abs(tau - 1.0/inputProps.sum)); 
-                                    "max(1.0/inputProps.sum * 10, 1.0) * typeof(res).epsilon: ".writeln(
-                                        max(1.0/inputProps.sum * 10, 1.0) * typeof(res).epsilon
-                                    );
-                                    */
-
-                                    /*
-                                    assert(abs(tau - 1.0/inputProps.sum) <
-                                           max(1.0/inputProps.sum * 10, 1.0) * typeof(res).epsilon);
-                                    */
-                                    //assert(abs(tau - 1.0/inputProps.sum) < 1.0/inputProps.sum); 
-                                    assert(approxEqual(s.tau, 1.0/inputProps.sum));
-                                   
-                                //}
+                                assert(approxEqual(tau, 1.0/inputProps.sum));
                             }
                             else
                             {
-                                auto tau = s.tau; 
-                                //res += (s.tau - 1.0/inputProps.sum); 
-                                //"tau: ".writeln(tau);
-                                //"inputProps: ".writeln(inputProps); 
-                                //"1.0/inputProps.sum: ".writeln(1.0/inputProps.sum); 
                                 res += (tau - 1.0/inputProps.sum); 
-                                //"res: ".writeln(res);
                             }
                         }
-                        /*
-                        "conditions: "
-                            .writeln("l: ", l, " T.stringof: ", T.stringof, " LDM: ", e2, " Sandmann: ", e1); 
-                        "res: "
-                            .writeln(res);
-                        "res/runs: "
-                            .writeln(res/runs);
-                        */
                         assert(approxEqual(abs(res/runs), 0));
-                        
                     }
                     else
                     {
