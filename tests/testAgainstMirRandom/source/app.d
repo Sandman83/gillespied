@@ -4,16 +4,18 @@ import core.stdc.limits : CHAR_BIT;
 import std.traits : EnumMembers;
 import std.range; 
 
-debug = bug; 
+import std.meta : AliasSeq;
+//alias typesToCheck = possibleTypes; 
+
+debug = bug; // <-- uncomment to turn bug on
 
 debug(bug)
 {
-    import std.meta : AliasSeq; 
     alias typesToCheck = AliasSeq!(real);
 }
 else
 {
-    alias typesToCheck = possibleTypes; 
+    alias typesToCheck = AliasSeq!(float, double, size_t);
 }
 
 void main()
