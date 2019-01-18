@@ -1,34 +1,20 @@
 module gillespied; 
-import std.math : isNaN, fabs, log, abs, approxEqual; 
-import std.algorithm.comparison : max;
+import std.math : fabs; 
 import std.range;
 import std.meta : AliasSeq;
 import std.typecons : Flag;
-import std.traits : EnumMembers, isFloatingPoint;  
+import std.traits : isFloatingPoint, isIterable;  
 
-debug import std.stdio; 
-
-debug = bug; 
-
-debug(bug)
+version(Have_mir_random)
 {
-    private alias possibleTypes = AliasSeq!(real);
-    version = mirRandom;
+    import mir.random : rand, randIndex; 
 }
 else
 {
-    private alias possibleTypes = AliasSeq!(float, double, real, size_t);
-    version = stdRandom;
+    import std.random : uniform01, randomSample; 
 }
 
-version(mirRandom)
-{
-    import mir.random : rne, rand, randIndex; 
-}
-version(stdRandom)
-{
-    import std.random; 
-}
+alias possibleTypes = AliasSeq!(float, double, real, size_t);
 
 /**
 This auxiliary struct models the time and reaction evolution as stated by Gillespie.
@@ -56,10 +42,9 @@ alias Sandmann = Flag!"Sandmann";
 alias LDM = Flag!"LDM"; 
 
 struct GillespieAlgorithm(
-    Sandmann sandmann, // whether to sample another uniform value for timings
-    LDM ldm, // whether to use an array for storing cumulative sum
-    //size_t max=(size_t.max/2 + 1UL), 
-    T
+    Sandmann sandmann, // whether to sample another uniform value for timings, see [5]
+    LDM ldm, // whether to use an array for storing cumulative sum, see [3]
+    T // type of propensities
 )
 {
     static if(isFloatingPoint!T)
@@ -74,7 +59,7 @@ struct GillespieAlgorithm(
     static if(ldm == LDM.yes)
     {
         /**
-        The only action to perform on creation is to blow up the working cache
+        The only action to perform on creation is to blow up the working cache. Available only in case LDM is chosen
         */
         this(size_t val)
         out
@@ -86,6 +71,9 @@ struct GillespieAlgorithm(
             propsArr_.length = val; 
         }
 
+        /**
+        In LDM case, it is naturally to make the length of the object available.
+        */
         size_t length() @nogc
         {
             return propsArr_.length; 
@@ -95,7 +83,7 @@ struct GillespieAlgorithm(
     /**
 	consumes any range of propensities, where cumulativeFold is applicable at. 
 	*/
-	void put(P)(P props) if(isForwardRange!P)
+	void put(P)(P props) if(isInputRange!P && is(ElementType!P == T))
     in
     {
         assert(!props.empty);
@@ -112,27 +100,65 @@ struct GillespieAlgorithm(
         }
         else
         {
-            import std.algorithm.iteration : fold;
+            static if(isForwardRange!P)
+            {
+                import std.algorithm.iteration : fold;
+                import std.algorithm.comparison : max;
 
-            a0_ = resCumFold.fold!max; 
-            nextReaction_ = getNextReaction(resCumFold);
+                a0_ = resCumFold.fold!max; 
+                nextReaction_ = getNextReaction(resCumFold);
+            }
+            else
+            {
+                assert(0); 
+            }
         }
     }
 
+    /*
+    real tau(T...)(T input) 
+        if((sandmann == Sandmann.yes && T.length == 0) || 
+           (sandmann == Sandmann.no  && T.length == 1  && is(T[0] == real)))
+    in
+    {
+        import std.math : isNaN; 
+        static foreach(i; input) 
+        {
+            assert(!i.isNaN); 
+            assert(i > 0.0); 
+            assert(i < 1.0); 
+        }
+    }
+    do
+    {
+        auto retVal = cast(real)1.0/cast(real)a0; 
+
+        static if(sandmann == Sandmann.no)
+        {
+            import std.math : log; 
+            retVal = - retVal * log(input);
+        }
+
+        return retVal; 
+    }
+    */
 	FloatingType tau() //@nogc
 	{
         typeof(return) retVal = cast(typeof(return))1.0/cast(typeof(return))a0; 
 
 		static if(sandmann == Sandmann.no)
 		{
-            version(mirRandom)
+            import std.math : log; 
+
+            version(Have_mir_random)
             {
-                retVal = - retVal * log(rne.rand!(typeof(return)).fabs);
+                retVal = - retVal * log(rand!(typeof(return)).fabs);
             }
-			version(stdRandom)
+            else
             {
                 retVal = - retVal * log(uniform01!(typeof(return)));
             }
+			
         }
 
         static if(ldm == LDM.yes)
@@ -141,7 +167,7 @@ struct GillespieAlgorithm(
             {
                 propsArr_[] = propsArr_[]/propsArr_.back; 
             }
-        }		
+        }
 
 		return retVal; 
 	}
@@ -189,22 +215,22 @@ struct GillespieAlgorithm(
     {
         static if(isFloatingPoint!T)
         {
-            version(mirRandom)
+            version(Have_mir_random)
             {
-                const rndNum = rne.rand!T.fabs; 
+                const rndNum = rand!T.fabs; 
             }
-            version(stdRandom)
+            else
             {
                 const rndNum = uniform01!T; 
             }
         }
         else
         {
-            version(mirRandom)
+            version(Have_mir_random)
             {
-                const rndNum = rne.randIndex!size_t(a0 + 1); 
+                const rndNum = randIndex!size_t(a0 + 1); 
             }
-            version(stdRandom)
+            else
             {
                 const rndNum = (a0 + 1).iota.randomSample(1).front; 
             }
@@ -240,112 +266,104 @@ struct GillespieAlgorithm(
     }
 }
 
-import core.stdc.limits : CHAR_BIT; 
+
+
+
+
+
+
+
+version(unittest):
 import std.algorithm.iteration : sum;
 import std.algorithm.searching : any;
-
-static foreach(e1; EnumMembers!Sandmann)
+import std.math : isNaN, abs, approxEqual; 
+void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
 {
-    static foreach(e2; EnumMembers!LDM)
-    {
-        static foreach(T; possibleTypes)
+    T[] inputProps; 
+    inputProps.length = l; 
+
+    GillespieAlgorithm!(sandmann, ldm, T) s; 
+
+    static if(l)
+    {                        
+        static if(ldm == LDM.yes)
         {
-            static foreach(l; 0 .. CHAR_BIT)
+            s = typeof(s)(inputProps.length); 
+        }
+        
+        static if(isFloatingPoint!T)
+        {
+            T res;
+        }
+        else
+        {
+            real res; 
+        }
+
+        res = 0.0; 
+
+        enum runs = 1_000_000; 
+
+        foreach(i; 0 .. runs)
+        {
+            inputProps.fill; 
+            assert(inputProps.sum > 0, ElementType!(typeof(inputProps)).stringof); 
+            put(s, inputProps); 
+            auto tau = s.tau; 
+            
+            static if(sandmann == Sandmann.yes)
             {
-                unittest
-                {
-                    T[] inputProps; 
-                    inputProps.length = l; 
-
-                    GillespieAlgorithm!(e1, e2, T) s; 
-
-                    static if(l)
-                    {                        
-                        static if(e2 == LDM.yes)
-                        {
-                            s = typeof(s)(inputProps.length); 
-                        }
-                        
-                        static if(isFloatingPoint!T)
-                        {
-                            T res;
-                        }
-                        else
-                        {
-                            real res; 
-                        }
-
-                        res = 0.0; 
-
-                        enum runs = 1_000_000; 
-
-                        foreach(i; 0 .. runs)
-                        {
-                            inputProps.fill; 
-                            assert(inputProps.sum > 0, ElementType!(typeof(inputProps)).stringof); 
-                            put(s, inputProps); 
-                            auto tau = s.tau; 
-                            
-                            static if(e1 == Sandmann.yes)
-                            {
-                                assert(approxEqual(tau, 1.0/inputProps.sum));
-                            }
-                            else
-                            {
-                                res += (tau - 1.0/inputProps.sum); 
-                            }
-                        }
-                        assert(approxEqual(abs(res/runs), 0));
-                    }
-                    else
-                    {
-                        import std.exception : assertThrown; 
-                        static if(e2 == LDM.yes)
-                        {
-                            assertThrown!Error(typeof(s)(inputProps.length));
-                        }
-                        else
-                        {
-                            assertThrown!Error(put(s, inputProps));
-                        }
-                    }
-                }
+                assert(approxEqual(tau, 1.0/inputProps.sum));
             }
+            else
+            {
+                res += (tau - 1.0/inputProps.sum); 
+            }
+        }
+        assert(approxEqual(abs(res/runs), 0));
+    }
+    else
+    {
+        import std.exception : assertThrown; 
+        static if(ldm == LDM.yes)
+        {
+            assertThrown!Error(typeof(s)(inputProps.length));
+        }
+        else
+        {
+            assertThrown!Error(put(s, inputProps));
         }
     }
 }
 
-version(unittest)
+void fill(R)(R inputProps) 
 {
-    void fill(R)(R inputProps) 
+    alias T = ElementType!R;  
+    import core.stdc.limits : CHAR_BIT;
+    enum boundExp = CHAR_BIT * int.sizeof;
+
+    static if(isFloatingPoint!T)
     {
-        alias T = ElementType!R; 
-        enum boundExp = CHAR_BIT * int.sizeof; 
-        static if(isFloatingPoint!T)
+        version(Have_mir_random)
         {
-            version(mirRandom)
-            {
-                foreach(ref el; inputProps) { el = rne.rand!T(boundExp).fabs; }
-            }
-            version(stdRandom)
-            {
-                foreach(ref el; inputProps) { el = uniform01 * (1UL << boundExp); }
-            }
-            
-            assert(!inputProps.any!isNaN); 
+            foreach(ref el; inputProps) { el = rand!T(boundExp).fabs; }
         }
         else
         {
-            version(mirRandom)
-            {
-                foreach(ref el; inputProps){ el = rne.randIndex!T(T.max); }
-            }
-            version(stdRandom)
-            {
-                foreach(ref el; inputProps){ el = T.max.iota.randomSample(1).front; }
-            }
-            
+            foreach(ref el; inputProps) { el = uniform01 * (1UL << boundExp); }
         }
+        
+        assert(!inputProps.any!isNaN); 
     }
-    
+    else
+    {
+        version(Have_mir_random)
+        {
+            foreach(ref el; inputProps){ el = randIndex!T(T.max); }
+        }
+        else
+        {
+            foreach(ref el; inputProps){ el = T.max.iota.randomSample(1).front; }
+        } 
+    }
 }

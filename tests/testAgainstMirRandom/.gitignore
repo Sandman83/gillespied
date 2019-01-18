@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/testagainstmirrandom
+testagainstmirrandom.so
+testagainstmirrandom.dylib
+testagainstmirrandom.dll
+testagainstmirrandom.a
+testagainstmirrandom.lib
+testagainstmirrandom-test-*
+*.exe
+*.o
+*.obj
+*.lst

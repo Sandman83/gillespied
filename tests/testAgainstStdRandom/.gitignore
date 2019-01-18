@@ -1,0 +1,15 @@
+.dub
+docs.json
+__dummy.html
+docs/
+/testagainststdrandom
+testagainststdrandom.so
+testagainststdrandom.dylib
+testagainststdrandom.dll
+testagainststdrandom.a
+testagainststdrandom.lib
+testagainststdrandom-test-*
+*.exe
+*.o
+*.obj
+*.lst
