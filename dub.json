@@ -10,7 +10,7 @@
             "optional" : true
         }
     },
-	"description": "Physical time reaction propagation library in D. Based on the Gillespie algorithm of 1977 it contains variouous implementations and enhancements for fast reaction index and timing sampling.",
+	"description": "Physical time reaction propagation library in D. Based on the Gillespie algorithm of 1977 it contains various implementations and enhancements for fast reaction index and timing sampling.",
 	"license": "BSL-1.0",
     "name": "gillespied",
     "targetPath": "./bin",
