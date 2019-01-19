@@ -1,9 +1,10 @@
 module gillespied; 
 import std.math : fabs; 
-import std.range;
+import std.range : enumerate, empty, front, back, put, ElementType, isInputRange, isForwardRange, assumeSorted;
 import std.meta : AliasSeq;
 import std.typecons : Flag;
 import std.traits : isFloatingPoint, isIterable;  
+import std.algorithm.sorting : isSorted;
 
 version(Have_mir_random)
 {
@@ -97,6 +98,8 @@ private struct GillespieAlgorithm(
         static if(ldm == LDM.yes)
         {
             foreach(i, el; resCumFold.enumerate) { propsArr_[i] = el; } 
+            
+            assert(propsArr_.isSorted);
         }
         else
         {
@@ -142,6 +145,7 @@ private struct GillespieAlgorithm(
         return retVal; 
     }
     */
+
 	FloatingType tau() //@nogc
 	{
         typeof(return) retVal = cast(typeof(return))1.0/cast(typeof(return))a0; 
@@ -158,7 +162,6 @@ private struct GillespieAlgorithm(
             {
                 retVal = - retVal * log(uniform01!(typeof(return)));
             }
-			
         }
 
         static if(ldm == LDM.yes)
@@ -241,8 +244,10 @@ private struct GillespieAlgorithm(
 		See [3] for reference.
 		*/
 		static if(ldm == LDM.yes)
-		{
-			return range.assumeSorted.lowerBound(rndNum).length;  // range is propsarr
+		{   
+            import std.conv : to; 
+            assert(range.isSorted, to!string(range));
+            return range.assumeSorted.lowerBound(rndNum).length;  // range is propsarr
 		}
 		else
 		{
@@ -319,10 +324,13 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
 
         foreach(i; 0 .. runs)
         {
-            inputProps.fill; 
+            immutable indexWithZeroPropensity = inputProps.fill; 
+
             assert(inputProps.sum > 0, ElementType!(typeof(inputProps)).stringof); 
+            
             put(s, inputProps); 
-            auto tau = s.tau; 
+            
+            immutable tau = s.tau; 
             
             static if(sandmann == Sandmann.yes)
             {
@@ -332,6 +340,7 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
             {
                 res += (tau - 1.0/inputProps.sum); 
             }
+            assert(s.index != indexWithZeroPropensity); 
         }
         assert(approxEqual(abs(res/runs), 0));
     }
@@ -349,11 +358,13 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
     }
 }
 
-void fill(R)(R inputProps) 
+size_t fill(R)(R inputProps) 
 {
     alias T = ElementType!R;  
+    
     import core.stdc.limits : CHAR_BIT;
-    enum boundExp = CHAR_BIT * int.sizeof;
+    
+    enum boundExp = CHAR_BIT * size_t.sizeof/2;
 
     static if(isFloatingPoint!T)
     {
@@ -365,18 +376,49 @@ void fill(R)(R inputProps)
         {
             foreach(ref el; inputProps) { el = uniform01 * (1UL << boundExp); }
         }
-        
         assert(!inputProps.any!isNaN); 
     }
     else
     {
+        enum maxEl = T.max/CHAR_BIT; 
+
         version(Have_mir_random)
         {
-            foreach(ref el; inputProps){ el = randIndex!T(T.max); }
+            foreach(ref el; inputProps){ el = randIndex!T(maxEl); }
         }
         else
         {
-            foreach(ref el; inputProps){ el = T.max.iota.randomSample(1).front; }
+            foreach(ref el; inputProps){ el = maxEl.iota.randomSample(1).front; }
         } 
     }
+
+    size_t retVal = inputProps.length; 
+    
+    if(retVal > 1)
+    {
+        bool modify; 
+
+        version(Have_mir_random)
+        {
+            modify = rand!bool; 
+        }
+        else
+        {
+            modify = uniform01!real <= 0.5; 
+        }
+
+        if(modify)
+        {
+            version(Have_mir_random)
+            {
+                retVal = randIndex!size_t(retVal); 
+            }
+            else
+            {
+                retVal = retVal.iota.randomSample(1).front;
+            }
+            inputProps[retVal] = 0;
+        }         
+    }
+    return retVal; 
 }
