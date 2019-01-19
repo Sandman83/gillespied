@@ -41,7 +41,7 @@ logarithmic operation.
 alias Sandmann = Flag!"Sandmann"; 
 alias LDM = Flag!"LDM"; 
 
-struct GillespieAlgorithm(
+private struct GillespieAlgorithm(
     Sandmann sandmann, // whether to sample another uniform value for timings, see [5]
     LDM ldm, // whether to use an array for storing cumulative sum, see [3]
     T // type of propensities
@@ -228,11 +228,11 @@ struct GillespieAlgorithm(
         {
             version(Have_mir_random)
             {
-                const rndNum = randIndex!size_t(a0 + 1); 
+                const rndNum = randIndex!size_t(a0); 
             }
             else
             {
-                const rndNum = (a0 + 1).iota.randomSample(1).front; 
+                const rndNum = a0.iota.randomSample(1).front; 
             }
         }
 		
@@ -261,17 +261,30 @@ struct GillespieAlgorithm(
             }
 
             import std.algorithm.searching : countUntil; 
-            return workRange.countUntil!"a >= b"(rndNum);
+            return workRange.countUntil!"a > b"(rndNum);
 		}
     }
 }
 
-
-
-
-
-
-
+/**
+The convenience function to release a gillespie algorithm structure with some preset properties. 
+In this case, the preset handles the memory allocation due using an internal buffer for storing passed propensities. 
+Other properties do not affect memory allocations. 
+*/
+auto gillespieAlgorithm(
+    Sandmann sandmann = Sandmann.yes,
+    LDM ldm = LDM.no,
+    T = real)(size_t val = 0)
+{
+    static if(ldm == LDM.yes)
+    {
+        return GillespieAlgorithm!(sandmann, ldm, T)(val);
+    }
+    else
+    {
+        return GillespieAlgorithm!(sandmann, ldm, T)();
+    }
+}
 
 version(unittest):
 import std.algorithm.iteration : sum;
