@@ -4,18 +4,16 @@ import core.stdc.limits : CHAR_BIT;
 import std.traits : EnumMembers;
 import std.range; 
 
+//debug = bug; // <-- uncomment to turn bug on
 import std.meta : AliasSeq;
-//alias typesToCheck = possibleTypes; 
-
-debug = bug; // <-- uncomment to turn bug on
-
 debug(bug)
 {
-    alias typesToCheck = AliasSeq!(real);
+    alias possibleTypes = AliasSeq!(real);
 }
 else
 {
-    alias typesToCheck = AliasSeq!(float, double, size_t);
+    import std.meta : AliasSeq;
+    alias possibleTypes = AliasSeq!(float, double, size_t);
 }
 
 void main()
@@ -24,7 +22,7 @@ void main()
     {
         static foreach(e2; EnumMembers!LDM)
         {
-            static foreach(T; typesToCheck)
+            static foreach(T; possibleTypes)
             {
                 static foreach(l; 0 .. CHAR_BIT)
                 {

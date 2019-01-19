@@ -1,11 +1,33 @@
+/**
+Copyright: Copyright (c) 2019- Alexander Orlov. All rights reserved.
+License: $(LINK2 https://opensource.org/licenses/BSL-1.0, BSL-1.0 License).
+Authors: Alexander Orlov, $(LINK2 mailto:sascha.orlov@gmail.com, sascha.orlov@gmail.com) 
+*/
+
+/**
+The module contains various physical time reaction propagation algorithms based on the Gillespie algorithm from 1977. 
+In the current version this module contains
+- the default version of Gillespie
+- The modification introduced by Sandmann 2008, which makes possible faster sample reaction arrival times,
+    in case all propensities of the reactions are known exactly. I. e. this modification can be applied, in case 
+    propensities were not estimated. 
+- The modification introduced by Petzold et. al. 2006. At the expense of allocating an ancillary propensities array, 
+    where their cumulative sum is stored, the velocity of sampling the reaction index increases, dependent on the 
+    chosen search policy of assumedSorted ranges.
+- The module provides also a common testing routine, containing tests for all combinations of modifications. 
+*/
 module gillespied; 
-import std.math : fabs; 
-import std.range : enumerate, empty, front, back, put, ElementType, isInputRange, isForwardRange, assumeSorted;
+import std.math : fabs, isNaN; 
+import std.range : enumerate, ElementType, assumeSorted, isForwardRange, isInputRange, empty, front, back, put, iota;
 import std.meta : AliasSeq;
 import std.typecons : Flag;
 import std.traits : isFloatingPoint, isIterable;  
 import std.algorithm.sorting : isSorted;
 
+/**
+Having mir library imported, this one will prefere it over the standard library random generator, assuming its 
+performance is better.
+*/
 version(Have_mir_random)
 {
     import mir.random : rand, randIndex; 
@@ -18,7 +40,7 @@ else
 alias possibleTypes = AliasSeq!(float, double, real, size_t);
 
 /**
-This auxiliary struct models the time and reaction evolution as stated by Gillespie.
+This struct models the time and reaction evolution as stated by Gillespie.
 An instance of the struct is initiated by exposing reaction propensities to the constructor. Once an instance is
 created, the opCall, which has the same interface as the constructor take over. 
 Passing the reaction propensities (which is in general a range) updates the intern array to contain a cumulative sum of 
@@ -42,11 +64,11 @@ logarithmic operation.
 alias Sandmann = Flag!"Sandmann"; 
 alias LDM = Flag!"LDM"; 
 
-private struct GillespieAlgorithm(
-    Sandmann sandmann, // whether to sample another uniform value for timings, see [5]
-    LDM ldm, // whether to use an array for storing cumulative sum, see [3]
-    T // type of propensities
-)
+/**
+The floating type in use is defined either by the user on algorithm declaration or is chosen to be real, in case 
+propensities come in form of integer values. 
+*/
+template FloatingType(T)
 {
     static if(isFloatingPoint!T)
     {
@@ -56,7 +78,14 @@ private struct GillespieAlgorithm(
     {
         alias FloatingType = real; 
     }
+}
 
+private struct GillespieAlgorithm(
+    Sandmann sandmann, // whether to sample another uniform value for timings, see [5]
+    LDM ldm, // whether to use an array for storing cumulative sum, see [3]
+    T // type of propensities
+)
+{
     static if(ldm == LDM.yes)
     {
         /**
@@ -65,7 +94,7 @@ private struct GillespieAlgorithm(
         this(size_t val)
         out
         {
-            assert(propsArr_.length); 
+            assert(propensities.length); 
         }
         do
         {
@@ -77,7 +106,7 @@ private struct GillespieAlgorithm(
         */
         size_t length() @nogc
         {
-            return propsArr_.length; 
+            return propensities.length; 
         }
     }
 
@@ -88,6 +117,10 @@ private struct GillespieAlgorithm(
     in
     {
         assert(!props.empty);
+        static if(isFloatingPoint!T)
+        {
+            assert(!props.any!isNaN); 
+        }
     }
     do
 	{
@@ -97,9 +130,9 @@ private struct GillespieAlgorithm(
  
         static if(ldm == LDM.yes)
         {
-            foreach(i, el; resCumFold.enumerate) { propsArr_[i] = el; } 
+            foreach(i, el; resCumFold.enumerate) { propensities[i] = el; } 
             
-            assert(propsArr_.isSorted);
+            assert(propensities.isSorted);
         }
         else
         {
@@ -118,35 +151,12 @@ private struct GillespieAlgorithm(
         }
     }
 
-    /*
-    real tau(T...)(T input) 
-        if((sandmann == Sandmann.yes && T.length == 0) || 
-           (sandmann == Sandmann.no  && T.length == 1  && is(T[0] == real)))
-    in
-    {
-        import std.math : isNaN; 
-        static foreach(i; input) 
-        {
-            assert(!i.isNaN); 
-            assert(i > 0.0); 
-            assert(i < 1.0); 
-        }
-    }
-    do
-    {
-        auto retVal = cast(real)1.0/cast(real)a0; 
-
-        static if(sandmann == Sandmann.no)
-        {
-            import std.math : log; 
-            retVal = - retVal * log(input);
-        }
-
-        return retVal; 
-    }
+    /**
+    This method provides the arrival time to the next reaction. 
+    Returns: the according floating point type value, corresponding to the provided propensities. This value is the 
+    exponential distributed time needed for the next reaction to arrive. 
     */
-
-	FloatingType tau() //@nogc
+	FloatingType!T tau() //@nogc
 	{
         typeof(return) retVal = cast(typeof(return))1.0/cast(typeof(return))a0; 
 
@@ -164,26 +174,18 @@ private struct GillespieAlgorithm(
             }
         }
 
-        static if(ldm == LDM.yes)
-        {
-            static if(isFloatingPoint!T)
-            {
-                propsArr_[] = propsArr_[]/propsArr_.back; 
-            }
-        }
-
 		return retVal; 
 	}
 
 	/**
-	This method yields the next reaction index, as stated by Gillespie. This method expects a normed state of the 
-	working cache. 
+	This method yields the next reaction index, as stated by Gillespie. The sampling is done according to the original 
+    sampling algorithm, taking advantage of stored propensities array if applicable.
 	*/
 	size_t index()
 	{
         static if(ldm == LDM.yes)
         {
-            return getNextReaction(propsArr_); 
+            return getNextReaction(propensities); 
         }
         else
         {
@@ -191,10 +193,11 @@ private struct GillespieAlgorithm(
         }
 	}
 
-    private : 
+    private: 
 	static if(ldm == LDM.yes)
     {
         T[] propsArr_; 
+        auto propensities() { return propsArr_; }
     }
     else
     {
@@ -206,7 +209,7 @@ private struct GillespieAlgorithm(
     {
         static if(ldm == LDM.yes)
         {
-            return propsArr_.back; 
+            return propensities.back; 
         }
         else
         {
@@ -216,58 +219,56 @@ private struct GillespieAlgorithm(
 
     size_t getNextReaction(R)(R range)
     {
-        static if(isFloatingPoint!T)
+        if(a0 > 0)
         {
-            version(Have_mir_random)
+            static if(isFloatingPoint!T)
             {
-                const rndNum = rand!T.fabs; 
+                T rndNum; 
+                version(Have_mir_random)
+                {
+                    rndNum = rand!T.fabs; 
+                }
+                else
+                {
+                    rndNum = uniform01!T; 
+                }
+                rndNum *= a0; 
             }
             else
             {
-                const rndNum = uniform01!T; 
+                version(Have_mir_random)
+                {
+                    const rndNum = randIndex!size_t(a0); 
+                }
+                else
+                {
+                    const rndNum = a0.iota.randomSample(1).front; 
+                }
+            }
+            
+            /**
+            The usage of persistent working cache allows to accelerate the search of next reaction by binary search.
+            See [3] for reference.
+            */
+            static if(ldm == LDM.yes)
+            {
+                assert(range.isSorted);
+                return range.assumeSorted.lowerBound(rndNum).length;  // range is propsarr
+            }
+            else
+            {
+                /*
+                The simple case. Do not assume anything about the range. Count until the value is equal or exceeds the 
+                random generated one. 
+                */
+                import std.algorithm.searching : countUntil; 
+                return range.countUntil!"a > b"(rndNum);
             }
         }
         else
         {
-            version(Have_mir_random)
-            {
-                const rndNum = randIndex!size_t(a0); 
-            }
-            else
-            {
-                const rndNum = a0.iota.randomSample(1).front; 
-            }
+            return typeof(return).max; 
         }
-		
-		/**
-		The usage of persistent working cache allows to accelerate the search of next reaction by binary search.
-		See [3] for reference.
-		*/
-		static if(ldm == LDM.yes)
-		{   
-            import std.conv : to; 
-            assert(range.isSorted, to!string(range));
-            return range.assumeSorted.lowerBound(rndNum).length;  // range is propsarr
-		}
-		else
-		{
-			/*
-			The simple case. Do not assume anything about the range. Count until the value is equal or exceeds the 
-			random generated one. 
-			*/
-            static if(isFloatingPoint!T)
-            {
-                import std.algorithm.iteration : map; 
-                auto workRange = range.map!(el => el/a0()); // range is input propensities
-            }
-            else
-            {
-                auto workRange = range; // range is input propensities
-            }
-
-            import std.algorithm.searching : countUntil; 
-            return workRange.countUntil!"a > b"(rndNum);
-		}
     }
 }
 
@@ -294,58 +295,91 @@ auto gillespieAlgorithm(
 version(unittest):
 import std.algorithm.iteration : sum;
 import std.algorithm.searching : any;
-import std.math : isNaN, abs, approxEqual; 
+import std.math : isInfinity, abs, approxEqual; 
+/**
+Common testing function.
+*/
 void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
 {
+    // 1. generate the environmental propensities. 
     T[] inputProps; 
+    
+    // ... of needed length
     inputProps.length = l; 
 
+    // 2a. Declare the usage of the algorithm
     GillespieAlgorithm!(sandmann, ldm, T) s; 
 
+    // 3. In case the environment does not provide propensities, it is an error to use the algorithm.
     static if(l)
-    {                        
+    {
+        // 2b. If using Petzold's enhancement, the algorithm has not only to be declared but also to be allocated
         static if(ldm == LDM.yes)
         {
             s = typeof(s)(inputProps.length); 
         }
         
-        static if(isFloatingPoint!T)
-        {
-            T res;
-        }
-        else
-        {
-            real res; 
-        }
+        // 4. Declaring and initializing the checked result. 
+        FloatingType!T res = 0.0; 
 
-        res = 0.0; 
-
+        // 5. The algorithm is intrinsically stochastic. Choosing a large amount of runs to be able to take an average. 
         enum runs = 1_000_000; 
 
         foreach(i; 0 .. runs)
         {
+            // 7a. Fill the mocking propensities with random values. Sometimes, there will be a zero propensity. The 
+            // index of the zero propensity has to be tracked to be checked later for not being choosen in all 
+            // circumstances. 
             immutable indexWithZeroPropensity = inputProps.fill; 
-
-            assert(inputProps.sum > 0, ElementType!(typeof(inputProps)).stringof); 
             
+            // 7b. Sometimes, there are cases, when propensities become zero altogether
+            if((indexWithZeroPropensity >= inputProps.length) && !i)
+            {
+                inputProps[] = 0; 
+            }
+            
+            // 8. Feed the propensities to the algorithm
             put(s, inputProps); 
             
+            // 9. Calculate the physical arrival time for the next reaction. This is simulated by exp distribution with 
+            // the single parameter of the intensity taken as the sum of all propensities feeded in the step 8. 
             immutable tau = s.tau; 
-            
-            static if(sandmann == Sandmann.yes)
+
+            if(tau.isInfinity)
             {
-                assert(approxEqual(tau, 1.0/inputProps.sum));
+                // 10a. In case all propensites were zero, arriving time is infinit. In this case no valid reaction 
+                // index can be generated. 
+                immutable ind = s.index; 
+                assert(ind >= inputProps.length);
             }
             else
             {
-                res += (tau - 1.0/inputProps.sum); 
+                // 10b. Otherwise, different assertions on the arrival timing can be done: 
+                static if(sandmann == Sandmann.yes)
+                {
+                    // 11a. If the Sandmann modification is taken into account, the timing was not sampled, but taken 
+                    // exactly. Assert on its value directly.
+                    assert(approxEqual(tau, 1.0/inputProps.sum));
+                }
+                else
+                {
+                    // 11b. Otherwise, the mean of the arrival timings have to be inspected. Form a sum of differences 
+                    // of the sampled timings and the expected ones. 
+                    res += (tau - 1.0/inputProps.sum); 
+                }
+
+                // 12. In any case, the sampled reaction index cannot be the excluded one in step 7a, as the propensity
+                // of the according reaction was set to zero. 
+                assert(s.index != indexWithZeroPropensity);
             }
-            assert(s.index != indexWithZeroPropensity); 
         }
+        // 11c. The mean of the differences has to be approximately zero, as taking the average on all runs has to obey
+        // the expectation of the exponential distribution.
         assert(approxEqual(abs(res/runs), 0));
     }
     else
     {
+        // See 3.
         import std.exception : assertThrown; 
         static if(ldm == LDM.yes)
         {
@@ -358,7 +392,8 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
     }
 }
 
-size_t fill(R)(R inputProps) 
+// Auxillary function for testing. Mocks the environmental propensities. 
+size_t fill(R)(R inputProps)
 {
     alias T = ElementType!R;  
     
