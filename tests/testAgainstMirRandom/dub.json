@@ -1,0 +1,18 @@
+{
+	"authors": [
+		"Alexander Orlov"
+	],
+	"copyright": "Copyright © 2019, Alexander Orlov",
+	"description": "This tests the gillespied library against the mir random generator contained in mir.random.",
+	"license": "BSL-1.0",
+    "name": "testagainstmirrandom", 
+    "dependencies":
+    {
+        "mir-random" : "*",
+        "gillespied":
+        {
+            "path" : "../../"
+        }
+    }
+    
+}
