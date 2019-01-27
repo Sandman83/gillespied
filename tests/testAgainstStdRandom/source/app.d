@@ -1,7 +1,7 @@
 import gillespied;
-import core.stdc.limits : CHAR_BIT;  
 import std.traits : EnumMembers;
 import std.range; 
+
 
 void main()
 {
@@ -11,7 +11,7 @@ void main()
         {
             static foreach(T; possibleTypes)
             {
-                static foreach(l; 0 .. CHAR_BIT)
+                static foreach(l; minTestedSizes .. maxTestedSizes)
                 {
                     testTemplate!(e1, e2, T, l); 
                 }

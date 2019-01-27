@@ -34,10 +34,12 @@ version(Have_mir_random)
 }
 else
 {
-    import std.random : uniform01, randomSample; 
+    import std.random : uniform01, uniform; 
 }
 
 alias possibleTypes = AliasSeq!(float, double, real, size_t);
+enum minTestedSizes = 0UL; 
+enum maxTestedSizes = 1UL << 5;
 
 /**
 This struct models the time and reaction evolution as stated by Gillespie.
@@ -126,28 +128,25 @@ private struct GillespieAlgorithm(
 	{
         import std.algorithm.iteration : cumulativeFold;
 
-        auto resCumFold = props.cumulativeFold!((a, b) => (a + b)); 
+        auto resCumFold = props.cumulativeFold!((a, b) => a + b); 
  
         static if(ldm == LDM.yes)
         {
-            foreach(i, el; resCumFold.enumerate) { propensities[i] = el; } 
+            foreach(i, el; resCumFold.enumerate) 
+            {
+                propensities[i] = el;
+            }
             
             assert(propensities.isSorted);
         }
         else
         {
-            static if(isForwardRange!P)
-            {
-                import std.algorithm.iteration : fold;
-                import std.algorithm.comparison : max;
+            static assert(isForwardRange!P);
+            import std.algorithm.iteration : fold;
+            import std.algorithm.comparison : max;
 
-                a0_ = resCumFold.fold!max; 
-                nextReaction_ = getNextReaction(resCumFold);
-            }
-            else
-            {
-                assert(0); 
-            }
+            a0_ = resCumFold.fold!max; 
+            nextReaction_ = getNextReaction(resCumFold);
         }
     }
 
@@ -156,22 +155,25 @@ private struct GillespieAlgorithm(
     Returns: the according floating point type value, corresponding to the provided propensities. This value is the 
     exponential distributed time needed for the next reaction to arrive. 
     */
-	FloatingType!T tau() //@nogc
+	FloatingType!T tau() @nogc
 	{
         typeof(return) retVal = cast(typeof(return))1.0/cast(typeof(return))a0; 
 
 		static if(sandmann == Sandmann.no)
 		{
             import std.math : log; 
+            
+            FloatingType!T rndNum = 0.0; 
 
             version(Have_mir_random)
             {
-                retVal = - retVal * log(rand!(typeof(return)).fabs);
+                rndNum = rand!(typeof(return)).fabs;
             }
             else
             {
-                retVal = - retVal * log(uniform01!(typeof(return)));
+                rndNum = uniform01!(typeof(return));
             }
+            retVal = - retVal * log(rndNum); 
         }
 
 		return retVal; 
@@ -181,7 +183,7 @@ private struct GillespieAlgorithm(
 	This method yields the next reaction index, as stated by Gillespie. The sampling is done according to the original 
     sampling algorithm, taking advantage of stored propensities array if applicable.
 	*/
-	size_t index()
+	size_t index()() //not possible to mark @nogc directly, due to phobos uniform is not @nogc
 	{
         static if(ldm == LDM.yes)
         {
@@ -197,7 +199,10 @@ private struct GillespieAlgorithm(
 	static if(ldm == LDM.yes)
     {
         T[] propsArr_; 
-        auto propensities() { return propsArr_; }
+        auto propensities() @nogc 
+        {
+            return propsArr_;
+        }
     }
     else
     {
@@ -205,7 +210,7 @@ private struct GillespieAlgorithm(
         size_t nextReaction_; 
     }
 
-    auto a0()
+    auto a0() @nogc
     {
         static if(ldm == LDM.yes)
         {
@@ -217,13 +222,14 @@ private struct GillespieAlgorithm(
         }
     }
 
-    size_t getNextReaction(R)(R range)
+    size_t getNextReaction(R)(R range) 
     {
         if(a0 > 0)
         {
+            T rndNum;
+
             static if(isFloatingPoint!T)
             {
-                T rndNum; 
                 version(Have_mir_random)
                 {
                     rndNum = rand!T.fabs; 
@@ -238,11 +244,11 @@ private struct GillespieAlgorithm(
             {
                 version(Have_mir_random)
                 {
-                    const rndNum = randIndex!size_t(a0); 
+                    rndNum = randIndex!size_t(a0); 
                 }
                 else
                 {
-                    const rndNum = a0.iota.randomSample(1).front; 
+                    rndNum = uniform(T(0), a0); 
                 }
             }
             
@@ -296,18 +302,16 @@ version(unittest):
 import std.algorithm.iteration : sum;
 import std.algorithm.searching : any;
 import std.math : isInfinity, abs, approxEqual; 
+
 /**
 Common testing function.
 */
 void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
 {
-    // 1. generate the environmental propensities. 
-    T[] inputProps; 
-    
-    // ... of needed length
-    inputProps.length = l; 
+    // 1. generate the environmental propensities of needed length
+    T[] inputProps = new T[l]; 
 
-    // 2a. Declare the usage of the algorithm
+    // 2. Declare the usage of the algorithm
     GillespieAlgorithm!(sandmann, ldm, T) s; 
 
     // 3. In case the environment does not provide propensities, it is an error to use the algorithm.
@@ -318,14 +322,19 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
         {
             s = typeof(s)(inputProps.length); 
         }
-        
-        // 4. Declaring and initializing the checked result. 
+
+        /*
+        4. The algorithm is intrinsically stochastic. 
+        Choosing a large amount of runs and samples to be able to take an average. 
+        */
+        enum maxAmount = (1UL << 20)/l; 
+
+        // 5. Declaring and initializing the checked result. 
         FloatingType!T res = 0.0; 
-
-        // 5. The algorithm is intrinsically stochastic. Choosing a large amount of runs to be able to take an average. 
-        enum runs = 1_000_000; 
-
-        foreach(i; 0 .. runs)
+        FloatingType!T[] resArray = new FloatingType!T[maxAmount]; 
+        resArray[] = 0.0; 
+        
+        foreach(i; 0 .. maxAmount)
         {
             // 7a. Fill the mocking propensities with random values. Sometimes, there will be a zero propensity. The 
             // index of the zero propensity has to be tracked to be checked later for not being choosen in all 
@@ -365,7 +374,8 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
                 {
                     // 11b. Otherwise, the mean of the arrival timings have to be inspected. Form a sum of differences 
                     // of the sampled timings and the expected ones. 
-                    res += (tau - 1.0/inputProps.sum); 
+                    res += tau - 1.0/inputProps.sum; 
+                    resArray[i] = tau - 1.0/inputProps.sum; 
                 }
 
                 // 12. In any case, the sampled reaction index cannot be the excluded one in step 7a, as the propensity
@@ -375,7 +385,11 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
         }
         // 11c. The mean of the differences has to be approximately zero, as taking the average on all runs has to obey
         // the expectation of the exponential distribution.
-        assert(approxEqual(abs(res/runs), 0));
+        import std.conv : to;  
+        assert(!resArray.any!isNaN);
+        assert(approxEqual(resArray.sum/maxAmount, res/maxAmount));
+        assert(approxEqual(abs(resArray.sum/maxAmount), 0), abs(resArray.sum/maxAmount).to!string);
+        assert(approxEqual(abs(res/maxAmount), 0), abs(res/maxAmount).to!string);
     }
     else
     {
@@ -397,63 +411,64 @@ size_t fill(R)(R inputProps)
 {
     alias T = ElementType!R;  
     
-    import core.stdc.limits : CHAR_BIT;
-    
-    enum boundExp = CHAR_BIT * size_t.sizeof/2;
-
-    static if(isFloatingPoint!T)
+    foreach(ref el; inputProps)
     {
-        version(Have_mir_random)
+        T rndNum = 0; 
+        
+        auto maxAmount = T.max/inputProps.length; 
+
+        static if(isFloatingPoint!T)
         {
-            foreach(ref el; inputProps) { el = rand!T(boundExp).fabs; }
+            version(Have_mir_random)
+            {
+                rndNum = rand!T.fabs * maxAmount;
+            }
+            else
+            {
+                rndNum = uniform01!T * maxAmount;
+            }
         }
         else
         {
-            foreach(ref el; inputProps) { el = uniform01 * (1UL << boundExp); }
+            version(Have_mir_random)
+            {
+                rndNum = randIndex!T(maxAmount);
+            }
+            else
+            {
+                rndNum = uniform(T(0), maxAmount);
+            }
         }
-        assert(!inputProps.any!isNaN); 
-    }
-    else
-    {
-        enum maxEl = T.max/CHAR_BIT; 
-
-        version(Have_mir_random)
-        {
-            foreach(ref el; inputProps){ el = randIndex!T(maxEl); }
-        }
-        else
-        {
-            foreach(ref el; inputProps){ el = maxEl.iota.randomSample(1).front; }
-        } 
+        el = rndNum;
     }
 
-    size_t retVal = inputProps.length; 
+    size_t retVal = inputProps.length;
     
     if(retVal > 1)
     {
-        bool modify; 
+        bool modify;
 
         version(Have_mir_random)
         {
-            modify = rand!bool; 
+            modify = rand!bool;
         }
         else
         {
-            modify = uniform01!real <= 0.5; 
+            modify = uniform01!real <= 0.5;
         }
 
         if(modify)
         {
             version(Have_mir_random)
             {
-                retVal = randIndex!size_t(retVal); 
+                retVal = randIndex!size_t(retVal);
             }
             else
             {
-                retVal = retVal.iota.randomSample(1).front;
+                retVal = uniform(size_t(0), retVal);
             }
             inputProps[retVal] = 0;
-        }         
+        }
     }
-    return retVal; 
+    return retVal;
 }
