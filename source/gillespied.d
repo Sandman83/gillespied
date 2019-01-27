@@ -38,8 +38,8 @@ else
 }
 
 alias possibleTypes = AliasSeq!(float, double, real, size_t);
-enum minTestedSizes = 0; 
-enum maxTestedSizes = 8; // tested up to 24
+enum minTestedSizes = 0UL; 
+enum maxTestedSizes = 1UL << 5;
 
 /**
 This struct models the time and reaction evolution as stated by Gillespie.
@@ -128,7 +128,7 @@ private struct GillespieAlgorithm(
 	{
         import std.algorithm.iteration : cumulativeFold;
 
-        auto resCumFold = props.cumulativeFold!((a, b) => [a, b].sum); 
+        auto resCumFold = props.cumulativeFold!((a, b) => a + b); 
  
         static if(ldm == LDM.yes)
         {
@@ -302,6 +302,7 @@ version(unittest):
 import std.algorithm.iteration : sum;
 import std.algorithm.searching : any;
 import std.math : isInfinity, abs, approxEqual; 
+
 /**
 Common testing function.
 */
@@ -310,7 +311,7 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
     // 1. generate the environmental propensities of needed length
     T[] inputProps = new T[l]; 
 
-    // 2a. Declare the usage of the algorithm
+    // 2. Declare the usage of the algorithm
     GillespieAlgorithm!(sandmann, ldm, T) s; 
 
     // 3. In case the environment does not provide propensities, it is an error to use the algorithm.
@@ -322,15 +323,18 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
             s = typeof(s)(inputProps.length); 
         }
 
-        // 4. The algorithm is intrinsically stochastic. Choosing a large amount of runs to be able to take an average. 
-        enum runs = 1_000_000; 
+        /*
+        4. The algorithm is intrinsically stochastic. 
+        Choosing a large amount of runs and samples to be able to take an average. 
+        */
+        enum maxAmount = (1UL << 20)/l; 
 
         // 5. Declaring and initializing the checked result. 
         FloatingType!T res = 0.0; 
-        FloatingType!T[] resArray = new FloatingType!T[runs]; 
+        FloatingType!T[] resArray = new FloatingType!T[maxAmount]; 
         resArray[] = 0.0; 
         
-        foreach(i; 0 .. runs)
+        foreach(i; 0 .. maxAmount)
         {
             // 7a. Fill the mocking propensities with random values. Sometimes, there will be a zero propensity. The 
             // index of the zero propensity has to be tracked to be checked later for not being choosen in all 
@@ -370,7 +374,7 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
                 {
                     // 11b. Otherwise, the mean of the arrival timings have to be inspected. Form a sum of differences 
                     // of the sampled timings and the expected ones. 
-                    res = [res, (tau - 1.0/inputProps.sum)].sum; 
+                    res += tau - 1.0/inputProps.sum; 
                     resArray[i] = tau - 1.0/inputProps.sum; 
                 }
 
@@ -383,9 +387,9 @@ void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
         // the expectation of the exponential distribution.
         import std.conv : to;  
         assert(!resArray.any!isNaN);
-        assert(approxEqual(resArray.sum/runs, res/runs));
-        assert(approxEqual(abs(resArray.sum/runs), 0), abs(resArray.sum/runs).to!string);
-        assert(approxEqual(abs(res/runs), 0), abs(res/runs).to!string);
+        assert(approxEqual(resArray.sum/maxAmount, res/maxAmount));
+        assert(approxEqual(abs(resArray.sum/maxAmount), 0), abs(resArray.sum/maxAmount).to!string);
+        assert(approxEqual(abs(res/maxAmount), 0), abs(res/maxAmount).to!string);
     }
     else
     {
@@ -411,28 +415,28 @@ size_t fill(R)(R inputProps)
     {
         T rndNum = 0; 
         
-        auto maxEl = T.max/inputProps.length; 
+        auto maxAmount = T.max/inputProps.length; 
 
         static if(isFloatingPoint!T)
         {
             version(Have_mir_random)
             {
-                rndNum = rand!T.fabs * maxEl;
+                rndNum = rand!T.fabs * maxAmount;
             }
             else
             {
-                rndNum = uniform01!T * maxEl;
+                rndNum = uniform01!T * maxAmount;
             }
         }
         else
         {
             version(Have_mir_random)
             {
-                rndNum = randIndex!T(maxEl);
+                rndNum = randIndex!T(maxAmount);
             }
             else
             {
-                rndNum = uniform(T(0), maxEl);
+                rndNum = uniform(T(0), maxAmount);
             }
         }
         el = rndNum;
