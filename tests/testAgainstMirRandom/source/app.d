@@ -1,20 +1,7 @@
-import mir.random; 
 import gillespied;
-import core.stdc.limits : CHAR_BIT;  
 import std.traits : EnumMembers;
 import std.range; 
-
-//debug = bug; // <-- uncomment to turn bug on
-import std.meta : AliasSeq;
-debug(bug)
-{
-    alias possibleTypes = AliasSeq!(real);
-}
-else
-{
-    import std.meta : AliasSeq;
-    alias possibleTypes = AliasSeq!(float, double, size_t);
-}
+import mir.random; 
 
 void main()
 {
@@ -24,7 +11,7 @@ void main()
         {
             static foreach(T; possibleTypes)
             {
-                static foreach(l; 0 .. CHAR_BIT)
+                static foreach(l; minTestedSizes .. maxTestedSizes) 
                 {
                     testTemplate!(e1, e2, T, l); 
                 }
