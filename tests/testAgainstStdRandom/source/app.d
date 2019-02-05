@@ -2,7 +2,6 @@ import gillespied;
 import std.traits : EnumMembers;
 import std.range; 
 
-
 void main()
 {
     static foreach(e1; EnumMembers!Sandmann)
