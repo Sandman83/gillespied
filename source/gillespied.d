@@ -32,38 +32,45 @@ version(Have_mir_random)
 {
     import mir.random : rand, randIndex; 
 }
-else
+else // the last else case will remain as default case for ever. 
 {
     import std.random : uniform01, uniform; 
 }
 
+/**
+The algorithms should work with all kinds of floating numbers as well as with integers.
+*/
 alias possibleTypes = AliasSeq!(float, double, real, size_t);
-enum minTestedSizes = 0UL; 
-enum maxTestedSizes = 1UL << 5;
 
 /**
-This struct models the time and reaction evolution as stated by Gillespie.
-An instance of the struct is initiated by exposing reaction propensities to the constructor. Once an instance is
-created, the opCall, which has the same interface as the constructor take over. 
-Passing the reaction propensities (which is in general a range) updates the intern array to contain a cumulative sum of 
-the rates. 
-The array is persistent and therefore must be allocated only once. Furthermore, due to persistence an optimization via
-binary search of the original algorithm can be achieved, see [3]. 
+This struct models the time and reaction evolution as stated by Gillespie, see [1] and [2]. After [3], all properly or
+rather "related to the intended master equation" formulated algorithms, modelling physical time propagation algorithms are equivalent. This concerns algorithms with rejection as well as the ones which are rejection-free, as the current algorithm. Whereas the rejection-free algorithms form a subset of the algorithms with rejection. 
+
+The default Gillespie algorithm was enhanced by two features. 
+- If the reaction propensities are known, i. e. they do not have to be estimated, one of the random numbers needed by 
+the original algorithm can be saved. As consequence the longer logarithmic operation is cancelled. See [4]. 
+
+- The search of next reaction is done over the cumulative sum of provided propensities. This search can be enhanced by 
+using space. In this case, any of available search algorithms can be applied to the cumulative sum range, which is 
+naturally ordered. In [5] the binary search algorithm was applied, whereas in the present case, the search policy is 
+managed by the standard library.
+
 [1] D. T. Gillespie, J. Comput. Phys. 434, 403 (1976).
 [2] D. T. Gillespie, 93555, 2340 (1977).
-[3] H. Li and L. R. Petzold, Tech. Rep. 1 (2006). (logarithmic direct method)
-
-// not used any more for defining the type:
-It is forbidden to instanciate a propagator without knowledge of all existent reaction rates. This is due 
-[4] S. A. Serebrinsky, Phys. Rev. E - Stat. Nonlinear, Soft Matter Phys. 83, 2010 (2011).
-
-Another optimization is given by [5]. I. e. if the upper bound of reaction rates is found (last member of the 
-cumulative sum working cache), the time step can be taken as 1/a0, without another random number generation and 
-logarithmic operation. 
-[5] W. Sandmann, Comput. Biol. Chem. J. 32, 292 (2008).
+[3] S. A. Serebrinsky, Phys. Rev. E - Stat. Nonlinear, Soft Matter Phys. 83, 2010 (2011).
+[4] W. Sandmann, Comput. Biol. Chem. J. 32, 292 (2008).
+[5] H. Li and L. R. Petzold, Tech. Rep. 1 (2006). (logarithmic direct method)
 */
 
+/**
+Whether the Sandmann enhancement is turned on
+*/ 
 alias Sandmann = Flag!"Sandmann"; 
+/**
+Whether the cumulative sum is stored separately inside the provided algorithm struct. In this case, a constructor is 
+provided, which recieves the amount of propensietes during the simulation. An array of proper type is expanded to store
+the cumulative fold resuls, which can be search faster. 
+*/ 
 alias LDM = Flag!"LDM"; 
 
 /**
@@ -121,6 +128,7 @@ private struct GillespieAlgorithm(
         assert(!props.empty);
         static if(isFloatingPoint!T)
         {
+            import std.algorithm.searching : any; 
             assert(!props.any!isNaN); 
         }
     }
@@ -286,7 +294,8 @@ Other properties do not affect memory allocations.
 auto gillespieAlgorithm(
     Sandmann sandmann = Sandmann.yes,
     LDM ldm = LDM.no,
-    T = real)(size_t val = 0)
+    T = real
+)(size_t val = size_t.init)
 {
     static if(ldm == LDM.yes)
     {
@@ -303,13 +312,14 @@ import std.algorithm.iteration : sum;
 import std.algorithm.searching : any;
 import std.math : isInfinity, abs, approxEqual; 
 
-/**
-Common testing function.
-*/
+enum minTestedSizes = 0UL; 
+enum maxTestedSizes = 1UL << size_t.sizeof;
+
+// Common testing function.
 void testTemplate(Sandmann sandmann, LDM ldm, T, size_t l)()
 {
     // 1. generate the environmental propensities of needed length
-    T[] inputProps = new T[l]; 
+    T[] inputProps = new T[l];
 
     // 2. Declare the usage of the algorithm
     GillespieAlgorithm!(sandmann, ldm, T) s; 

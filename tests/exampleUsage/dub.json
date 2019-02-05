@@ -1,0 +1,15 @@
+{
+	"authors": [
+		"Alexander Orlov"
+	],
+	"copyright": "Copyright © 2019, Alexander Orlov",
+	"description": "This tests the gillespied library against the standard random generator contained in phobos. ",
+	"license": "BSL-1.0",
+    "name": "exampleusage",
+    "dependencies": {
+        "gillespied":
+        {
+            "path" : "../../"
+        }
+    }
+}
