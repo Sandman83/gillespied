@@ -23,9 +23,13 @@ binary search algorithm was applied, whereas in the present case, the search pol
 managed by the standard library.
 
 [1] D. T. Gillespie, J. Comput. Phys. 434, 403 (1976).
+
 [2] D. T. Gillespie, 93555, 2340 (1977).
+
 [3] S. A. Serebrinsky, Phys. Rev. E - Stat. Nonlinear, Soft Matter Phys. 83, 2010 (2011).
+
 [4] W. Sandmann, Comput. Biol. Chem. J. 32, 292 (2008).
+
 [5] H. Li and L. R. Petzold, Tech. Rep. 1 (2006). (logarithmic direct method)
 
 Example usage: 
@@ -49,6 +53,10 @@ void main()
     assert(algorithm.index != inputPropensities.length); 
 }
 ```
+
+The package provides optional dependency on the random generator of mir.random. This is done 
+by the optional feature of dub, so that this random generator take over, if already present 
+in the project.
 
 Copyright: Copyright (c) 2019- Alexander Orlov. All rights reserved.
 
