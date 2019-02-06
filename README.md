@@ -1,6 +1,6 @@
 # README #
 
-This repository contains a physical time reaction propagation library in D. Based on the 
+This repository contains a physical, stochastic time reaction propagation library in D. Based on the 
 Gillespie algorithm of 1977 it contains various implementations and enhancements for fast 
 reaction index and timing sampling.
 
